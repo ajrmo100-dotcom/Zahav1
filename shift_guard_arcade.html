@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>משמרות זה״ב — שעת השיא</title>
+<style>
+:root{--ink:#172033;--panel:#101827;--yellow:#ffe36e;--mint:#7df0b5;--red:#ff6868}
+*{box-sizing:border-box}body{margin:0;background:#0c1220;color:#f4f7ff;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;justify-content:center;min-height:100vh}
+main{width:min(100%,900px);padding:14px;display:flex;flex-direction:column;gap:10px}
+header{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+h1{font-size:clamp(20px,4vw,30px);margin:0;letter-spacing:.2px} .sub{color:#aab6cc;font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.stat{background:#182338;border:1px solid #2b3a54;border-radius:10px;padding:8px;text-align:center}.stat span{display:block;color:#aab6cc;font-size:11px}.stat strong{font-size:clamp(16px,3vw,22px)}
+canvas{width:100%;aspect-ratio:800/420;display:block;border:3px solid #2c3b56;border-radius:12px;background:#9ddcff;image-rendering:pixelated;touch-action:manipulation}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{font:inherit;font-weight:800;border:0;border-radius:12px;min-height:58px;padding:12px;color:#111827;touch-action:manipulation;cursor:pointer;box-shadow:0 4px 0 #0004;user-select:none;-webkit-user-select:none}
+#stop{background:#ff7272}#cross{background:#83f0b6}button:disabled{opacity:.45;filter:grayscale(.6);cursor:not-allowed}
+.help{display:flex;gap:8px;flex-wrap:wrap;color:#b8c5da;font-size:12px}.pill{background:#182338;border:1px solid #2b3a54;border-radius:99px;padding:5px 9px}
+.overlay{position:fixed;inset:0;background:#060b15d9;display:flex;align-items:center;justify-content:center;padding:20px;z-index:5}.dialog{max-width:470px;width:100%;background:#172238;border:2px solid #40516f;border-radius:18px;padding:24px;text-align:center;box-shadow:0 18px 80px #0008}.dialog h2{margin:0 0 8px;font-size:28px}.dialog p{color:#d0daeb;line-height:1.6}.dialog button{background:var(--yellow);width:100%;margin-top:8px}.hidden{display:none!important}
+@media(max-width:460px){main{padding:9px}.stat{padding:6px 2px}.controls button{font-size:15px;min-height:64px}.sub{font-size:11px}}
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>🚸 משמרות זה״ב: שעת השיא</h1><div class="sub">ארקייד פיקסלים • שומרים על כולם בשלום</div></div><div class="pill" id="levelLabel">משמרת 1</div></header>
+<section class="stats">
+<div class="stat"><span>ניקוד</span><strong id="score">0</strong></div><div class="stat"><span>ילדים שהגיעו</span><strong id="saved">0</strong></div><div class="stat"><span>רצף</span><strong id="combo">×1</strong></div><div class="stat"><span>סבלנות</span><strong id="patience">100%</strong></div>
+</section>
+<canvas id="game" width="800" height="420" aria-label="משחק מעבר חצייה"></canvas>
+<div class="controls"><button id="stop" aria-label="לחץ והחזק כדי לעצור את התנועה">🛑 לחיצה והחזקה: עצור</button><button id="cross" disabled>🚸 התחל חצייה</button></div>
+<div class="help"><span class="pill">1. החזק עצור עד שכל המכוניות נעצרו</span><span class="pill">2. התחל חצייה</span><span class="pill">3. שמור על העצירה עד שכולם עברו</span><span class="pill">המטרה: צבור נקודות בלי לסכן ילדים</span></div>
+</main>
+<div class="overlay" id="overlay"><div class="dialog"><h2 id="modalTitle">שעת השיא</h2><p id="modalText">הבוקר מתחיל! עצור את התנועה, ודא שהכביש פנוי, ורק אז התחל להעביר את הילדים. אם הילדים חוצים, התנועה נשארת עצורה גם אם משחררים את הכפתור.</p><button id="start">מתחילים משמרת</button></div></div>
+<script>
+(()=>{
+const c=document.getElementById('game'),ctx=c.getContext('2d');
+const $=id=>document.getElementById(id);
+let running=false,gameOver=false,holding=false,crossing=false,score=0,saved=0,combo=0,patience=100,level=1,tick=0,last=0,spawn=0,group=[],cars=[],message='הבוקר מתחיל!',messageT=0,stoppedSince=0,high=0;
+try{high=+(localStorage.getItem('zehavHigh')||0)}catch(e){}
+const rand=(a,b)=>a+Math.random()*(b-a);
+function reset(){running=true;gameOver=false;holding=false;crossing=false;score=0;saved=0;combo=0;patience=100;level=1;tick=0;last=0;spawn=0;group=[];cars=[];stoppedSince=0;message='הבוקר מתחיל!';messageT=2;
+for(let i=0;i<4;i++)cars.push(makeCar(i*220+80, i%2===0?1:-1));
+group=makeGroup(4);$('overlay').classList.add('hidden');$('stop').disabled=false;updateUI()}
+function makeCar(x,dir){return{x,y:dir===1?238:294,w:dir===1?62:70,h:dir===1?28:30,dir,speed:rand(65,95),color:['#e85d75','#f5bd4f','#6f8cff','#54c7a2'][Math.floor(rand(0,4))],stopped:false,braking:false}}
+function makeGroup(n){return Array.from({length:n},(_,i)=>({x:330+i*18,y:172+Math.sin(i)*4,done:false,color:['#ffce7a','#f7a7c6','#a9e4ff','#c8f29b'][i%4]}))}
+function safe(){return cars.every(car=>car.stopped||Math.abs(car.x-400)>100)}
+function allStopped(){return cars.every(car=>car.stopped)}
+function startCross(){if(!running||crossing||!holding||!allStopped()){message='צריך לעצור את כל המכוניות קודם!';messageT=1.6;return}crossing=true;group.forEach((p,i)=>{p.x=330+i*18;p.y=174});message='חצייה בטוחה!';messageT=1.3;$('cross').disabled=true}
+function finish(){crossing=false;const n=group.length;let base=n*100+100;combo++;let mult=Math.min(1+combo*.2,3);let bonus=allStopped()?50:0;let pts=Math.round(base*mult+bonus);score+=pts;saved+=n;message=`כל הכבוד! +${pts}`;messageT=1.8;group=[];spawn=1.0;patience=Math.min(100,patience+10);updateUI()}
+function endGame(){running=false;gameOver=true;try{if(score>high){high=score;localStorage.setItem('zehavHigh',String(high))}}catch(e){}$('modalTitle').textContent='המשמרת הסתיימה';$('modalText').innerHTML=`ניקוד: <b>${score}</b><br>ילדים שהגיעו בבטחה: <b>${saved}</b><br>שיא אישי: <b>${high}</b><br><br>המשחק נגמר כי סבלנות הילדים אזלה. נסה לתכנן עצירות וחציות יעילות יותר.`;$('start').textContent='משמרת חדשה';$('overlay').classList.remove('hidden')}
+function updateUI(){$('score').textContent=score;$('saved').textContent=saved;$('combo').textContent='×'+Math.min(1+combo*.2,3).toFixed(1).replace('.0','');$('patience').textContent=Math.ceil(patience)+'%';$('levelLabel').textContent='משמרת '+level;$('cross').disabled=!(running&&holding&&allStopped()&&!crossing&&group.length>0)}
+function drawPixelPerson(x,y,color,scale=1){ctx.fillStyle='#253047';ctx.fillRect(x+5*scale,y,7*scale,7*scale);ctx.fillStyle=color;ctx.fillRect(x+3*scale,y+7*scale,11*scale,12*scale);ctx.fillStyle='#f5d2ad';ctx.fillRect(x+4*scale,y+1*scale,9*scale,7*scale);ctx.fillStyle='#26334c';ctx.fillRect(x+4*scale,y+19*scale,4*scale,7*scale);ctx.fillRect(x+10*scale,y+19*scale,4*scale,7*scale)}
+function drawCar(car){ctx.fillStyle='#26334b';ctx.fillRect(car.x-car.w/2,car.y-car.h/2+4,car.w,car.h-4);ctx.fillStyle=car.color;ctx.fillRect(car.x-car.w/2,car.y-car.h/2,car.w,car.h-7);ctx.fillStyle='#aeeaff';ctx.fillRect(car.x-car.w/2+12,car.y-car.h/2+3,car.w-28,9);ctx.fillStyle='#20283b';ctx.fillRect(car.x-car.w/2+8,car.y+car.h/2-3,12,7);ctx.fillRect(car.x+car.w/2-20,car.y+car.h/2-3,12,7);if(car.stopped){ctx.fillStyle='#ff3f4f';ctx.fillRect(car.x-car.w/2+(car.dir===1?0:car.w-5),car.y-5,5,6)}}
+function draw(){
+ctx.clearRect(0,0,800,420);
+// sky/buildings
+ctx.fillStyle='#9ddcff';ctx.fillRect(0,0,800,160);
+ctx.fillStyle='#f8f0c8';ctx.fillRect(35,38,110,95);ctx.fillStyle='#e6dcae';ctx.fillRect(50,55,18,20);ctx.fillRect(85,55,18,20);ctx.fillRect(50,88,18,20);ctx.fillRect(85,88,18,20);
+ctx.fillStyle='#d9e9c4';ctx.fillRect(625,45,125,88);ctx.fillStyle='#95b6ca';for(let x=640;x<735;x+=28)ctx.fillRect(x,60,13,17);
+ctx.fillStyle='#68b87b';ctx.fillRect(0,133,800,27);
+ctx.fillStyle='#d8cda7';ctx.fillRect(0,160,800,66);ctx.fillRect(0,306,800,114);
+ctx.fillStyle='#424d60';ctx.fillRect(0,222,800,87);
+ctx.fillStyle='#f6f2d8';for(let x=0;x<800;x+=80)ctx.fillRect(x+tick%80,263,38,5);
+ctx.fillStyle='#f7f7f0';for(let i=0;i<8;i++)ctx.fillRect(340+i*16,225,9,80);
+ctx.fillStyle='#e9e4d2';ctx.fillRect(0,214,800,8);ctx.fillRect(0,309,800,7);
+// stop guard
+ctx.fillStyle='#243149';ctx.fillRect(400,168,5,45);ctx.fillStyle='#ffe36e';ctx.fillRect(378,146,48,34);ctx.fillStyle='#d33e4e';ctx.fillRect(383,151,38,24);ctx.fillStyle='#fff';ctx.font='bold 11px monospace';ctx.textAlign='center';ctx.fillText('STOP',402,166);
+drawPixelPerson(390,180,'#ffe36e',1.25);
+// kids
+if(group.length){group.forEach((p,i)=>{if(!p.done)drawPixelPerson(p.x,p.y,p.color,1.05)})}
+cars.forEach(drawCar);
+// status banner
+ctx.fillStyle='#101827d9';ctx.fillRect(18,15,260,35);ctx.fillStyle='#fff';ctx.font='bold 15px system-ui';ctx.textAlign='left';let status=crossing?'הילדים חוצים — המשך להחזיק עצור':allStopped()&&holding?'הכביש עצור — אפשר להתחיל חצייה':holding?'המכוניות בולמות…':'התנועה זורמת';ctx.fillText(status,30,38);
+if(messageT>0){ctx.fillStyle='#111827e8';ctx.fillRect(260,80,280,36);ctx.fillStyle='#ffe36e';ctx.font='bold 18px system-ui';ctx.textAlign='center';ctx.fillText(message,400,104)}
+if(!running){ctx.fillStyle='#10182799';ctx.fillRect(0,0,800,420)}
+}
+function update(dt){
+if(!running){draw();return}tick+=dt;let targetLevel=1+Math.floor(score/1200);level=Math.min(4,targetLevel);
+if(!holding&&!crossing)patience-=dt*(1.5+level*.4);
+if(patience<=0){patience=0;updateUI();endGame();draw();return}
+if(messageT>0)messageT-=dt;
+for(const car of cars){
+if(holding||crossing){car.braking=true;let brakingDistance=Math.abs(car.x-400);if(brakingDistance<135||Math.abs(car.x-400)<135)car.speed=Math.max(0,car.speed-210*dt);else car.speed=Math.max(0,car.speed-130*dt);if(car.speed<2)car.stopped=true}
+else if(!crossing){car.stopped=false;car.braking=false;car.speed=Math.min(95+level*22,car.speed+100*dt)}
+if(!car.stopped)car.x+=car.dir*car.speed*dt;
+if(car.dir===1&&car.x>850){car.x=-70;car.speed=rand(70,100)+level*12;car.stopped=false}
+if(car.dir===-1&&car.x<-80){car.x=870;car.speed=rand(70,100)+level*12;car.stopped=false}
+}
+if(crossing){let unfinished=0;group.forEach((p,i)=>{if(!p.done){p.y+=105*dt;p.x+=Math.sin(tick*4+i)*7*dt;if(p.y>326)p.done=true;else unfinished++}});if(unfinished===0)finish()}
+if(spawn>0){spawn-=dt;if(spawn<=0&&group.length===0){group=makeGroup(Math.min(4+level,8));holding=false;cars.forEach(car=>{car.stopped=false;car.speed=rand(70,100)+level*10});patience=Math.min(100,patience+8);message='קבוצה חדשה הגיעה!';messageT=1.6}}
+updateUI();draw();
+}
+function frame(t){if(!last)last=t;let dt=Math.min((t-last)/1000,.04);last=t;update(dt);requestAnimationFrame(frame)}
+$('stop').addEventListener('pointerdown',e=>{e.preventDefault();if(!running)return;holding=true;stoppedSince=tick;try{$('stop').setPointerCapture(e.pointerId)}catch(_){}updateUI()});
+function release(){holding=false;updateUI()}
+$('stop').addEventListener('pointerup',release);$('stop').addEventListener('pointercancel',release);$('stop').addEventListener('lostpointercapture',()=>{holding=false;updateUI()});
+$('cross').addEventListener('click',startCross);
+$('start').addEventListener('click',reset);
+document.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat){e.preventDefault();holding=true;updateUI()}if(e.code==='Enter'&&running)startCross()});
+document.addEventListener('keyup',e=>{if(e.code==='Space'){holding=false;updateUI()}});
+requestAnimationFrame(frame);
+})();
+</script>
+</body></html>
